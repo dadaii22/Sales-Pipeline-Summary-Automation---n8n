@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: Sales Pipeline Summary - n8n Workflow
+message: If you use this software, please cite it.
+type: software
+
+authors:
+  - family-names: Hummayoun
+    given-names: Mohammad Ahsan
+    orcid: ""
+    affiliation: ""
+
+version: 1.0.0
+date-released: 2025-08-28
+repository-code: https://github.com/ahsan-141117/Sales-Pipeline-Summary---n8n
+
+preferred-citation:
+  type: software
+  title: Sales Pipeline Summary - n8n Workflow
+  authors:
+    - family-names: Hummayoun
+      given-names: Mohammad Ahsan
+  year: 2025
+  url: https://github.com/ahsan-141117/Sales-Pipeline-Summary---n8n
