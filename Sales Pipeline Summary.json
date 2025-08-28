@@ -1,0 +1,182 @@
+{
+  "name": "Sales Pipeline Summary",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -32
+      ],
+      "id": "399cbdb8-9356-4cd4-ad77-3e27bd9dad19",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "resource": "deal",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "properties": [
+            "dealname",
+            "amount",
+            "closedate",
+            "dealstage",
+            "pipeline"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2.1,
+      "position": [
+        -96,
+        -32
+      ],
+      "id": "456459f5-ecc4-473b-b95e-556e4912816e",
+      "name": "Get many deals",
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "31TiWmxYl1vH2pC6",
+          "name": "HubSpot App Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3f8317e8-fc1a-4b8c-955e-87c7dbc05cb3",
+              "leftValue": "={{ $json.properties.dealstage.value }}",
+              "rightValue": "qualifiedtobuy",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        128,
+        -32
+      ],
+      "id": "910508c2-a082-4051-aac9-13e230d9c826",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "jsCode": "const deals = $input.all();\n\n// 1) Helper to convert close date from ms to readable format (e.g. 2025-08-01)\n// HubSpot and many more APIs store dates in milliseconds passed after January 1 1970\n// This format is called the Unix Epoch Format\nfunction formatDate(ms) {\n  if (!ms) return '';\n  const date = new Date(Number(ms));\n  return date.toISOString().split('T')[0];\n}\n\n// 2) Extract and format the deal data\nconst dealData = deals\n  .map(item => ({\n    name: item.json.properties.dealname?.value ?? 'Unnamed Deal',\n    amount: parseFloat(item.json.properties.amount?.value ?? 0),\n    closeDate: formatDate(item.json.properties.closedate?.value),\n    pipeline: item.json.properties.pipeline?.value ?? 'N/A'\n  }))\n  .filter(deal => deal.amount > 0)\n  .sort((a, b) => b.amount - a.amount)\n  .slice(0, 10)\n  .map(deal => ({\n    ...deal,\n    formattedAmount: deal.amount.toLocaleString()\n  }));\n\n// 3) Reduce the label size to reduce clutter in the chart\nconst labels = dealData.map(deal =>\n  deal.name.length > 20 ? deal.name.substring(0, 17) + '...' : deal.name\n);\n\n// 4) Store all amounts for the upcoming chart\nconst amounts = dealData.map(deal => deal.amount);\n\n// 5) Making a bar chart\nconst chartConfig = {\n  type: 'bar',\n  data: {\n    labels: labels,\n    datasets: [{\n      label: 'Deal Amount ($)',\n      data: amounts,\n      backgroundColor: 'rgba(54, 162, 235, 0.8)',\n      borderColor: 'rgba(54, 162, 235, 1)',\n      borderWidth: 1\n    }]\n  },\n  options: {\n    responsive: true,\n    plugins: {\n      title: {\n        display: true,\n        text: 'Qualified to Buy Deals - Weekly Summary',\n        font: { size: 16 }\n      },\n      legend: {\n        display: false\n      }\n    },\n    scales: {\n      y: {\n        beginAtZero: true\n      },\n      x: {\n        ticks: {\n          maxRotation: 45,\n          minRotation: 45\n        }\n      }\n    }\n  }\n};\n\n// 6) Get the URL to the bar chart\nconst chartUrl = `https://quickchart.io/chart?width=800&height=400&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;\n\n// 7) Some helper variables for the email \nconst totalValue = amounts.reduce((sum, amount) => sum + amount, 0);\nconst dealCount = dealData.length;\nconst avgDealSize = dealCount > 0 ? totalValue / dealCount : 0;\nconst formattedTotal = totalValue.toLocaleString();\nconst formattedAvg = avgDealSize.toLocaleString(undefined, { maximumFractionDigits: 0 });\n\n// 8) Build the table rows HTML for email node\nlet tableRowsHtml = '';\ndealData.forEach(deal => {\n  tableRowsHtml += `\n    <tr>\n      <td style=\"padding: 10px 8px; border-bottom: 1px solid #e2e8f0; color: #111; font-size: 14px;\">${deal.name}</td>\n      <td style=\"padding: 10px 8px; border-bottom: 1px solid #e2e8f0; color: #1a9966; text-align: right; font-size: 14px;\">$${deal.formattedAmount}</td>\n      <td style=\"padding: 10px 8px; border-bottom: 1px solid #e2e8f0; color: #444; text-align: center; font-size: 13px;\">${deal.closeDate}</td>\n      <td style=\"padding: 10px 8px; border-bottom: 1px solid #e2e8f0; color: #2954d7; text-align: center; font-size: 13px;\">${deal.pipeline}</td>\n    </tr>\n  `;\n});\n\n// 9) Finally, return the json\nreturn [{\n  json: {\n    chartUrl: chartUrl,\n    deals: dealData,\n    tableRowsHtml: tableRowsHtml,\n    summary: {\n      totalValue: totalValue,\n      dealCount: dealCount,\n      avgDealSize: avgDealSize,\n      formattedTotal: formattedTotal,\n      formattedAvg: formattedAvg\n    },\n    originalDeals: deals.map(item => item.json)\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        -32
+      ],
+      "id": "a508a693-40d7-41fd-a608-5d70aa695a74",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "fromEmail": "ahsanhummayoun2006@gmail.com",
+        "toEmail": "ahsanhummayoun2006@gmail.com",
+        "subject": "Monday Sales Pipeline Summary - In Progress Deals",
+        "html": "=<div style=\"font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 10px #e0e6ed; padding: 32px 28px;\">\n\n  <h2 style=\"color: #2954d7; margin-top: 0; margin-bottom: 12px; font-weight: 700; letter-spacing: 0.5px;\">\n    Weekly Sales Pipeline: <span style=\"color: #111;\">Qualified to Buy Deals</span>\n  </h2>\n  \n\n  <!-- Stats cards -->\n  <div style=\"display: flex; gap: 18px; margin-bottom: 26px;\">\n    <div style=\"flex: 1; background: #f3f8fe; border-radius: 8px; padding: 16px; text-align: center;\">\n      <div style=\"color: #2954d7; font-size: 24px; font-weight: 700;\">\n        ${{ $json.summary.formattedTotal }}\n      </div>\n      <div style=\"color: #222; font-size: 12px; letter-spacing: 1px;\">Total Value</div>\n    </div>\n    <div style=\"flex: 1; background: #f3f8fe; border-radius: 8px; padding: 16px; text-align: center;\">\n      <div style=\"color: #00a37a; font-size: 24px; font-weight: 700;\">\n        {{ $json.summary.dealCount }}\n      </div>\n      <div style=\"color: #222; font-size: 12px; letter-spacing: 1px;\"># of Deals</div>\n    </div>\n    <div style=\"flex: 1; background: #f3f8fe; border-radius: 8px; padding: 16px; text-align: center;\">\n      <div style=\"color: #ff6f40; font-size: 24px; font-weight: 700;\">\n        ${{ $json.summary.formattedAvg }}\n      </div>\n      <div style=\"color: #222; font-size: 12px; letter-spacing: 1px;\">Avg Deal Size</div>\n    </div>\n  </div>\n\n  <!-- Table -->\n  <table style=\"border-collapse: collapse; width: 100%; margin-bottom: 30px; background: #fafbfc; border-radius: 8px; overflow: hidden;\">\n    <thead>\n      <tr>\n        <th style=\"background: #2954d7; color: #fff; padding: 10px 8px; text-align: left; font-size: 15px;\">Deal Name</th>\n        <th style=\"background: #2954d7; color: #fff; padding: 10px 8px; text-align: right; font-size: 15px;\">Amount ($)</th>\n        <th style=\"background: #2954d7; color: #fff; padding: 10px 8px; text-align: center; font-size: 15px;\">Close Date</th>\n        <th style=\"background: #2954d7; color: #fff; padding: 10px 8px; text-align: center; font-size: 15px;\">Pipeline</th>\n      </tr>\n    </thead>\n    <tbody>\n      {{ $json.tableRowsHtml }}\n    </tbody>\n  </table>\n\n  <p style=\"color: #555; margin-bottom: 8px; font-size: 14px;\">\n    <em>See visual summary below for quick insights.</em>\n  </p>\n\n  <!-- Chart -->\n  <div style=\"text-align: center; margin: 24px 0;\">\n    <img src=\"{{ $json.chartUrl }}\" alt=\"Weekly Deal Amount Bar Chart\" style=\"max-width: 100%; border-radius: 12px; box-shadow: 0 1px 8px #e0e6ed;\" />\n  </div>\n\n  <footer style=\"color: #aaa; font-size: 12px; margin-top: 24px; text-align: center;\">\n    Thank you\n  </footer>\n</div>\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        576,
+        -32
+      ],
+      "id": "f4958e9b-bbb7-4718-949b-89ccf69e595c",
+      "name": "Send email",
+      "webhookId": "2d3bfcab-2343-446b-9c13-9adfcb0e6945",
+      "credentials": {
+        "smtp": {
+          "id": "dsiH8hVJhbTX4n2L",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get many deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many deals": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "20496917-7f20-42aa-88e0-081f82270ee2",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7bc50f428589f30ba9e8dea22648d5b21371dbf29a247364f4c5cdaaced84196"
+  },
+  "id": "KZynu9TEPkQiIupy",
+  "tags": []
+}
